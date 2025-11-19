@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --card: #ffffff; --ink: #0f172a; }
+body { color: var(--ink); }
