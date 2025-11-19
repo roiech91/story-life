@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     MAX_TOKENS: int | None = None
 
     # Database Configuration
-    DATABASE_URL: str = "postgresql://user:password@localhost:5432/lifestory"
+    DATABASE_URL: str | None = None
     DATABASE_ECHO: bool = False  # Set to True for SQL query logging
 
     # OAuth2 Configuration
