@@ -104,6 +104,39 @@ async def get_current_user(
     return user
 
 
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Get the current authenticated user from JWT token if present, otherwise return None.
+    This allows endpoints to work with or without authentication.
+    
+    Args:
+        credentials: HTTP Bearer token credentials (optional)
+        db: Database session
+        
+    Returns:
+        Authenticated User object if token is valid, None otherwise
+    """
+    if not credentials:
+        return None
+    
+    try:
+        token = credentials.credentials
+        payload = decode_access_token(token)
+        
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            return None
+        
+        user = db.query(User).filter(User.id == user_id).first()
+        return user
+    except (HTTPException, JWTError):
+        # If token is invalid, just return None instead of raising
+        return None
+
+
 def get_or_create_user_from_oauth(
     oauth_provider: str,
     oauth_id: str,
@@ -170,6 +203,7 @@ def get_or_create_user_from_oauth(
         oauth_provider=oauth_provider,
         oauth_id=oauth_id,
         picture=picture,
+        language="he",  # Default to Hebrew, will be updated from OAuth callback if needed
     )
     db.add(user)
     db.commit()

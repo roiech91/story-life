@@ -26,13 +26,15 @@ if (existingToken) {
 }
 
 // Auth API functions
-export const googleLogin = () => {
-  // Redirect to backend Google OAuth endpoint
+export const googleLogin = (language = "he") => {
+  // Redirect to backend Google OAuth endpoint with language preference
   const backendUrl = import.meta.env.VITE_API_BASE || "http://localhost:8000";
-  window.location.href = `${backendUrl}/api/auth/google/login`;
+  window.location.href = `${backendUrl}/api/auth/google/login?language=${language}`;
 };
 
 export const getCurrentUser = () => api.get("/api/auth/me").then(r => r.data);
+
+export const updateLanguage = (language) => api.put("/api/auth/language", { language }).then(r => r.data);
 
 export const logout = async () => {
   try {
@@ -45,8 +47,15 @@ export const logout = async () => {
 };
 
 // API functions
-export const listChapters = () => api.get("/api/chapters").then(r=>r.data);
-export const getQuestions = (chapter) => api.get(`/api/questions`, { params: { chapter } }).then(r=>r.data);
+export const listChapters = (language) => {
+  const params = language ? { language } : {};
+  return api.get("/api/chapters", { params }).then(r=>r.data);
+};
+export const getQuestions = (chapter, language) => {
+  const params = { chapter };
+  if (language) params.language = language;
+  return api.get(`/api/questions`, { params }).then(r=>r.data);
+};
 export const upsertQuestions = (chapter_id, questions) => api.post(`/api/questions`, { chapter_id, questions }).then(r=>r.data);
 export const addAnswer = (payload) => api.post(`/api/answers`, payload);
 export const getAnswers = (person_id, chapter) => api.get(`/api/answers`, { params: { person_id, chapter } }).then(r=>r.data);

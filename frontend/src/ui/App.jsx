@@ -1,7 +1,74 @@
 import { useEffect, useRef, useState } from "react";
-import { listChapters, getQuestions, addAnswer, storyChapter, getAnswers, storyCompile, getCurrentUser, setToken, logout, getStoryChapter } from "../api";
+import { listChapters, getQuestions, addAnswer, storyChapter, getAnswers, storyCompile, getCurrentUser, setToken, logout, getStoryChapter, updateLanguage } from "../api";
 import { createWebSpeechRecognizer } from "../lib/webspeech";
 import Login from "./Login";
+
+const translations = {
+  he: {
+    loading: "טוען...",
+    selectChapter: "בחר פרק",
+    convertChapter: "✍️ הפוך את הפרק לסיפור",
+    questions: "שאלות",
+    chapterStory: "Chapter Story",
+    noQuestions: "אין שאלות לפרק זה עדיין.",
+    recording: "🎙️ תמלול",
+    stop: "⏹ עצור",
+    placeholder: "אפשר להקליד תשובה או להשתמש בדיבור",
+    saving: "שומר...",
+    saved: "✓ נשמר",
+    saveError: "שגיאה בשמירה",
+    buildFullStory: "✨ הפוך את כל הפרקים לסיפור אחד",
+    showFullStory: "📖 הצג את הסיפור",
+    logout: "התנתק",
+    backToInterface: "← חזרה לממשק",
+    fullStoryTitle: "סיפור חייך המלא",
+    noStoryYet: "עדיין לא נוצר סיפור לפרק זה.",
+    clickToCreate: "לחץ על \"הפוך את הפרק לסיפור\" כדי ליצור סיפור.",
+    loadingLong: "זה עלול לקחת כמה רגעים. אנא המתן...",
+    storyCreated: "נוצר סיפור פרק ✨",
+    storyError: "שגיאה ביצירת סיפור",
+    fullStoryCreated: "נוצר סיפור מלא מכל הפרקים ✨",
+    fullStoryError: "שגיאה ביצירת הסיפור המלא",
+    recordingStarted: "הקלטה התחילה...",
+    recordingError: "שגיאה בהקלטה:",
+    micPermissionError: "נדרש אישור לשימוש במיקרופון. אנא בדוק את הגדרות הדפדפן.",
+    languageUpdated: "שפה עודכנה ✨",
+    languageError: "שגיאה בעדכון השפה",
+    appTitle: "סיפור חייך – מערכת ריאיון",
+  },
+  en: {
+    loading: "Loading...",
+    selectChapter: "Select Chapter",
+    convertChapter: "✍️ Convert Chapter to Story",
+    questions: "Questions",
+    chapterStory: "Chapter Story",
+    noQuestions: "No questions for this chapter yet.",
+    recording: "🎙️ Record",
+    stop: "⏹ Stop",
+    placeholder: "You can type an answer or use speech",
+    saving: "Saving...",
+    saved: "✓ Saved",
+    saveError: "Error saving",
+    buildFullStory: "✨ Turn All Chapters into One Story",
+    showFullStory: "📖 Show Story",
+    logout: "Logout",
+    backToInterface: "← Back to Interface",
+    fullStoryTitle: "Your Complete Life Story",
+    noStoryYet: "No story has been created for this chapter yet.",
+    clickToCreate: "Click \"Convert Chapter to Story\" to create a story.",
+    loadingLong: "This may take a few moments. Please wait...",
+    storyCreated: "Chapter story created ✨",
+    storyError: "Error creating story",
+    fullStoryCreated: "Full story created from all chapters ✨",
+    fullStoryError: "Error creating full story",
+    recordingStarted: "Recording started...",
+    recordingError: "Recording error:",
+    micPermissionError: "Microphone permission required. Please check your browser settings.",
+    languageUpdated: "Language updated ✨",
+    languageError: "Error updating language",
+    appTitle: "Your Life Story – Interview System",
+  },
+};
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -26,6 +93,27 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState({}); // Track save status per question: 'saving', 'saved', 'unsaved'
   const saveTimeoutsRef = useRef({}); // Store debounce timeouts per question
   const questionsRef = useRef([]); // Store questions in ref for easy access
+  
+  // Get current language from user or default to Hebrew (reactive)
+  const getCurrentLanguage = () => user?.language || localStorage.getItem("preferred_language") || "he";
+  const getTranslations = () => translations[getCurrentLanguage()] || translations.he;
+  
+  // Get current language value for useEffect dependency
+  const currentLanguage = getCurrentLanguage();
+  
+  // Update document direction and language based on current language
+  useEffect(() => {
+    const isRTL = currentLanguage === "he";
+    
+    // Update HTML dir attribute
+    document.documentElement.dir = isRTL ? "rtl" : "ltr";
+    
+    // Update HTML lang attribute
+    document.documentElement.lang = currentLanguage === "he" ? "he" : "en";
+    
+    // Update document title
+    document.title = getTranslations().appTitle;
+  }, [currentLanguage, user]);
 
   // Handle OAuth callback and check authentication
   useEffect(() => {
@@ -45,6 +133,10 @@ export default function App() {
         const userData = await getCurrentUser();
         setUser(userData);
         setPersonId(userData.person_id);
+        // Sync language preference from user profile
+        if (userData.language) {
+          localStorage.setItem("preferred_language", userData.language);
+        }
       } catch (error) {
         console.error("Auth error:", error);
         setUser(null);
@@ -59,13 +151,36 @@ export default function App() {
 
   useEffect(() => { 
     if (user) {
-      listChapters().then(setChapters);
+      const lang = user.language || "he";
+      listChapters(lang)
+        .then(chapters => {
+          console.log("Loaded chapters:", chapters);
+          setChapters(chapters || []);
+        })
+        .catch(err => {
+          console.error("Error loading chapters:", err);
+          // Try loading with default language if user language fails
+          if (lang !== "he") {
+            listChapters("he")
+              .then(chapters => {
+                console.log("Loaded chapters with default language:", chapters);
+                setChapters(chapters || []);
+              })
+              .catch(err2 => {
+                console.error("Error loading chapters with default language:", err2);
+                setChapters([]);
+              });
+          } else {
+            setChapters([]);
+          }
+        });
     }
   }, [user]);
   
   useEffect(() => { 
-    if (chapter) {
-      getQuestions(chapter).then(qs => {
+    if (chapter && user) {
+      const lang = user.language || "he";
+      getQuestions(chapter, lang).then(qs => {
         setQuestions(qs);
         questionsRef.current = qs; // Store in ref
       });
@@ -73,7 +188,7 @@ export default function App() {
       setQuestions([]);
       questionsRef.current = [];
     }
-  }, [chapter]);
+  }, [chapter, user]);
   
   // Load saved answers when chapter or personId changes
   useEffect(() => {
@@ -153,7 +268,8 @@ export default function App() {
     resultIndexRef.current = 0;
     
     try {
-      const rec = createWebSpeechRecognizer({ lang: "he-IL", interim: true });
+      const langCode = getCurrentLanguage() === "en" ? "en-US" : "he-IL";
+      const rec = createWebSpeechRecognizer({ lang: langCode, interim: true });
       
       rec.onresult = (e) => {
         console.log("onresult called, results length:", e.results.length, "resultIndex:", resultIndexRef.current);
@@ -239,13 +355,13 @@ export default function App() {
             }
           }
         } else if (e.error === "not-allowed") {
-          setToast("נדרש אישור לשימוש במיקרופון. אנא בדוק את הגדרות הדפדפן.");
+          setToast(getTranslations().micPermissionError);
           setRecording(false);
           setActiveQ(null);
           activeQRef.current = null;
           setInterimTranscripts(prev => ({ ...prev, [qid]: "" }));
         } else {
-          setToast("שגיאה בהקלטה: " + e.error);
+          setToast(getTranslations().recordingError + " " + e.error);
           setRecording(false);
           setActiveQ(null);
           activeQRef.current = null;
@@ -255,7 +371,7 @@ export default function App() {
       
       rec.onstart = () => {
         console.log("Speech recognition started for question:", qid);
-        setToast("הקלטה התחילה...");
+        setToast(getTranslations().recordingStarted);
         setTimeout(() => setToast(null), 2000);
       };
       
@@ -269,7 +385,7 @@ export default function App() {
         console.log("rec.start() called for question:", qid);
       } catch (startError) {
         console.error("Error starting recognition:", startError);
-        setToast("שגיאה בהתחלת ההקלטה: " + startError.message);
+        setToast(getTranslations().recordingError + " " + startError.message);
         setRecording(false);
         setActiveQ(null);
         activeQRef.current = null;
@@ -281,7 +397,7 @@ export default function App() {
       activeQRef.current = qid;
       setInterimTranscripts(prev => ({ ...prev, [qid]: "" }));
     } catch (e) { 
-      setToast("שגיאה: " + e.message);
+      setToast(getTranslations().recordingError + " " + e.message);
       setRecording(false);
       setActiveQ(null);
     }
@@ -328,7 +444,7 @@ async function saveAnswer(q, showToast = false, textOverride = null) {
     });
     setSaveStatus(prev => ({ ...prev, [q.id]: 'saved' }));
     if (showToast) {
-      setToast("נשמר ✨");
+      setToast(getTranslations().saved);
     }
     // Clear saved status after 2 seconds
     setTimeout(() => {
@@ -343,7 +459,7 @@ async function saveAnswer(q, showToast = false, textOverride = null) {
   } catch {
     setSaveStatus(prev => ({ ...prev, [q.id]: 'unsaved' }));
     if (showToast) {
-      setToast("שגיאה בשמירה");
+      setToast(getTranslations().saveError);
     }
   }
 }
@@ -368,11 +484,11 @@ function scheduleAutoSave(q) {
       const { narrative } = await storyChapter({ person_id: personId, chapter_id: chapter, style_guide: DEFAULT_STYLE, context_summary: "" });
       // Store the generated story
       setGeneratedStories(prev => ({ ...prev, [chapter]: narrative }));
-      setToast("נוצר סיפור פרק ✨");
+      setToast(getTranslations().storyCreated);
       // Switch to the story tab
       setActiveTab("story");
     } catch { 
-      setToast("שגיאה ביצירת סיפור"); 
+      setToast(getTranslations().storyError); 
     } finally { 
       setLoading(false); 
     }
@@ -388,6 +504,25 @@ function scheduleAutoSave(q) {
     setTranscripts({});
     setGeneratedStories({});
     setFullStory(null);
+  };
+
+  const handleLanguageChange = async (newLanguage) => {
+    try {
+      const updatedUser = await updateLanguage(newLanguage);
+      setUser(updatedUser);
+      localStorage.setItem("preferred_language", newLanguage);
+      
+      // Update direction immediately
+      const isRTL = newLanguage === "he";
+      document.documentElement.dir = isRTL ? "rtl" : "ltr";
+      document.documentElement.lang = newLanguage === "he" ? "he" : "en";
+      document.title = translations[newLanguage]?.appTitle || translations.he.appTitle;
+      
+      setToast(translations[newLanguage]?.languageUpdated || translations.he.languageUpdated);
+    } catch (error) {
+      console.error("Error updating language:", error);
+      setToast(getTranslations().languageError);
+    }
   };
 
   async function buildFullStory() {
@@ -413,10 +548,10 @@ function scheduleAutoSave(q) {
       // Save story to state and navigate to story page
       setFullStory(storyText);
       setShowFullStory(true);
-      setToast("נוצר סיפור מלא מכל הפרקים ✨");
+      setToast(getTranslations().fullStoryCreated);
     } catch (err) {
       console.error("Error compiling full story:", err);
-      setToast("שגיאה ביצירת הסיפור המלא");
+      setToast(getTranslations().fullStoryError);
     } finally {
       setLoading(false);
     }
@@ -426,12 +561,12 @@ function scheduleAutoSave(q) {
   if (loadingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100">
-        <div className="text-center">
-          <div className="h-16 w-16 rounded-2xl bg-slate-900 text-white text-3xl flex items-center justify-center mx-auto mb-4 animate-pulse">
-            📖
+          <div className="text-center">
+            <div className="h-16 w-16 rounded-2xl bg-slate-900 text-white text-3xl flex items-center justify-center mx-auto mb-4 animate-pulse">
+              📖
+            </div>
+            <p className="text-slate-600">{getTranslations().loading}</p>
           </div>
-          <p className="text-slate-600">טוען...</p>
-        </div>
       </div>
     );
   }
@@ -448,14 +583,14 @@ function scheduleAutoSave(q) {
         <header className="max-w-5xl mx-auto flex items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-2xl bg-white shadow flex items-center justify-center">📖</div>
-            <h1 className="text-2xl sm:text-3xl font-semibold">סיפור חייך המלא</h1>
+            <h1 className="text-2xl sm:text-3xl font-semibold">{getTranslations().fullStoryTitle}</h1>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowFullStory(false)}
               className="rounded-xl bg-slate-900 text-white px-4 py-2 hover:bg-slate-800 transition"
             >
-              ← חזרה לממשק
+              {getTranslations().backToInterface}
             </button>
           </div>
         </header>
@@ -481,9 +616,9 @@ function scheduleAutoSave(q) {
               <div className="mb-4">
                 <div className="inline-block h-12 w-12 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
               </div>
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">טוען...</h3>
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">{t.loading}</h3>
               <p className="text-sm text-slate-600">
-                זה עלול לקחת כמה רגעים. אנא המתן...
+                {getTranslations().loadingLong}
               </p>
             </div>
           </div>
@@ -497,9 +632,34 @@ function scheduleAutoSave(q) {
       <header className="max-w-5xl mx-auto flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-2xl bg-white shadow flex items-center justify-center">📖</div>
-          <h1 className="text-2xl sm:text-3xl font-semibold">סיפור חייך – מערכת ריאיון</h1>
+          <h1 className="text-2xl sm:text-3xl font-semibold">{getTranslations().appTitle}</h1>
         </div>
         <div className="flex items-center gap-2">
+          {/* Language Selector */}
+          <div className="flex items-center gap-1 border border-slate-300 rounded-xl overflow-hidden">
+            <button
+              onClick={() => handleLanguageChange("he")}
+              className={`px-3 py-2 text-xs transition-colors ${
+                user.language === "he"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+              title="עברית"
+            >
+              ע
+            </button>
+            <button
+              onClick={() => handleLanguageChange("en")}
+              className={`px-3 py-2 text-xs transition-colors ${
+                user.language === "en"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+              title="English"
+            >
+              EN
+            </button>
+          </div>
           {user.picture && (
             <img 
               src={user.picture} 
@@ -515,26 +675,26 @@ function scheduleAutoSave(q) {
             disabled={loading}
             className="rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {fullStory ? "📖 הצג את הסיפור" : "✨ הפוך את כל הפרקים לסיפור אחד"}
+            {fullStory ? getTranslations().showFullStory : getTranslations().buildFullStory}
           </button>
           <button
             onClick={handleLogout}
             className="rounded-xl bg-slate-200 text-slate-700 px-4 py-2 text-sm hover:bg-slate-300 transition"
           >
-            התנתק
+            {getTranslations().logout}
           </button>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto mt-8 grid gap-6">
         <section className="p-4 sm:p-6 rounded-2xl bg-white shadow">
-          <label className="block mb-2 text-sm text-slate-700">בחר פרק</label>
+          <label className="block mb-2 text-sm text-slate-700">{getTranslations().selectChapter}</label>
           <div className="flex flex-wrap items-center gap-3">
             <select className="rounded-xl border border-slate-300 bg-white px-3 py-2" value={chapter} onChange={e=>setChapter(e.target.value)}>
               <option value="">—</option>
               {chapters.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
             </select>
-            {chapter && <button onClick={buildChapterStory} disabled={loading || !!generatedStories[chapter]} className="rounded-xl border border-slate-300 px-3 py-2 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">✍️ הפוך את הפרק לסיפור</button>}
+            {chapter && <button onClick={buildChapterStory} disabled={loading || !!generatedStories[chapter]} className="rounded-xl border border-slate-300 px-3 py-2 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">{getTranslations().convertChapter}</button>}
           </div>
         </section>
 
@@ -550,7 +710,7 @@ function scheduleAutoSave(q) {
                     : "text-slate-500 hover:text-slate-700"
                 }`}
               >
-                שאלות
+                {getTranslations().questions}
               </button>
               <button
                 onClick={() => setActiveTab("story")}
@@ -563,14 +723,14 @@ function scheduleAutoSave(q) {
                     : "text-slate-500 hover:text-slate-700"
                 }`}
               >
-                Chapter Story
+                {getTranslations().chapterStory}
               </button>
             </div>
 
             {/* Tab Content */}
             {activeTab === "questions" && (
               <div>
-                {questions.length === 0 && <p className="text-slate-600">אין שאלות לפרק זה עדיין.</p>}
+                {questions.length === 0 && <p className="text-slate-600">{getTranslations().noQuestions}</p>}
                 <div className="grid gap-4">
                   {questions.map(q => (
                     <div key={q.id} className="border border-slate-200 rounded-2xl p-4 hover:shadow-sm transition">
@@ -578,9 +738,9 @@ function scheduleAutoSave(q) {
                         <strong className="text-slate-800">{q.order}. {q.text}</strong>
                         <div className="flex gap-2">
                           {!recording || activeQ !== q.id ? (
-                            <button onClick={() => startRec(q.id)} className="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm">🎙️ תמלול</button>
+                            <button onClick={() => startRec(q.id)} className="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm">{getTranslations().recording}</button>
                           ) : (
-                            <button onClick={stopRec} className="rounded-xl bg-slate-200 px-3 py-2 text-sm">⏹ עצור</button>
+                            <button onClick={stopRec} className="rounded-xl bg-slate-200 px-3 py-2 text-sm">{getTranslations().stop}</button>
                           )}
                         </div>
                       </div>
@@ -598,19 +758,19 @@ function scheduleAutoSave(q) {
                           // Mark as unsaved while typing
                           setSaveStatus(prev => ({ ...prev, [q.id]: 'unsaved' }));
                         }}
-                        placeholder="אפשר להקליד תשובה או להשתמש בדיבור"
+                        placeholder={getTranslations().placeholder}
                       />
                       <div className="mt-2 flex items-center justify-between">
                         <div className="text-xs text-slate-500 flex items-center gap-2">
                           {saveStatus[q.id] === 'saving' && (
                             <span className="flex items-center gap-1">
                               <span className="animate-pulse">●</span>
-                              שומר...
+                              {getTranslations().saving}
                             </span>
                           )}
                           {saveStatus[q.id] === 'saved' && (
                             <span className="flex items-center gap-1 text-emerald-600">
-                              ✓ נשמר
+                              {getTranslations().saved}
                             </span>
                           )}
                         </div>
@@ -631,8 +791,8 @@ function scheduleAutoSave(q) {
 
             {activeTab === "story" && !generatedStories[chapter] && (
               <div className="text-center py-8 text-slate-500">
-                <p>עדיין לא נוצר סיפור לפרק זה.</p>
-                <p className="text-sm mt-2">לחץ על "הפוך את הפרק לסיפור" כדי ליצור סיפור.</p>
+                <p>{getTranslations().noStoryYet}</p>
+                <p className="text-sm mt-2">{getTranslations().clickToCreate}</p>
               </div>
             )}
           </section>
@@ -652,9 +812,9 @@ function scheduleAutoSave(q) {
             <div className="mb-4">
               <div className="inline-block h-12 w-12 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
             </div>
-            <h3 className="text-xl font-semibold text-slate-900 mb-2">טוען...</h3>
+            <h3 className="text-xl font-semibold text-slate-900 mb-2">{t.loading}</h3>
             <p className="text-sm text-slate-600">
-              זה עלול לקחת כמה רגעים. אנא המתן...
+              {t.loadingLong}
             </p>
           </div>
         </div>

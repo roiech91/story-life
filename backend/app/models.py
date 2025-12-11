@@ -29,6 +29,9 @@ class User(Base):
     # LLM Permission
     can_use_llm = Column(Boolean, default=False, nullable=False)  # Permission to make LLM API calls (costs money)
     
+    # Language preference
+    language = Column(String, default="he", nullable=False)  # User's preferred language: "he" (Hebrew) or "en" (English)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
@@ -43,8 +46,9 @@ class Chapter(Base):
     
     __tablename__ = "chapters"
     
-    id = Column(String, primary_key=True)  # e.g., "1", "2", etc.
+    id = Column(String, primary_key=True)  # e.g., "1-he", "1-en", "2-he", etc. (includes language)
     title = Column(String, nullable=False)
+    language = Column(String, default="he", nullable=False)  # "he" or "en"
     order = Column(Integer, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     

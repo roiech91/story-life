@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>סיפור חייך</title>
+    <script>
+      // Set initial direction based on localStorage before React loads
+      (function() {
+        const lang = localStorage.getItem("preferred_language") || "he";
+        const isRTL = lang === "he";
+        document.documentElement.dir = isRTL ? "rtl" : "ltr";
+        document.documentElement.lang = lang === "he" ? "he" : "en";
+      })();
+    </script>
   </head>
   <body class="bg-slate-50">
     <div id="root"></div>

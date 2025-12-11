@@ -17,6 +17,7 @@ from app.models import User, Chapter, Answer, Story, StoryChapter
 from app.auth import (
     create_access_token,
     get_current_user,
+    get_optional_current_user,
     get_or_create_user_from_oauth,
     get_google_oauth_client,
     get_google_user_info,
@@ -27,27 +28,61 @@ llm: Optional[LifeStoryLLM] = None
 
 
 def seed_chapters(db: Session):
-    """Seed the chapters table with predefined chapters."""
-    chapters_data = [
-        {"id": "1", "title": "שורשים ומשפחה מוקדמת", "order": 1},
-        {"id": "2", "title": "ילדות", "order": 2},
-        {"id": "3", "title": "נעורים", "order": 3},
-        {"id": "4", "title": "אהבה וזוגיות", "order": 4},
-        {"id": "5", "title": "צבא / שירות / לימודים", "order": 5},
-        {"id": "6", "title": "קריירה ועשייה", "order": 6},
-        {"id": "7", "title": "הורות ומשפחה", "order": 7},
-        {"id": "8", "title": "חברים וקהילה", "order": 8},
-        {"id": "9", "title": "תחביבים ופנאי", "order": 9},
-        {"id": "10", "title": "אמונות וערכים", "order": 10},
-        {"id": "11", "title": "רגעים קשים ומשמעותיים", "order": 11},
-        {"id": "12", "title": "חלומות והבטים קדימה", "order": 12},
+    """Seed the chapters table with predefined chapters in both languages."""
+    chapters_data_he = [
+        {"id": "1-he", "title": "שורשים ומשפחה מוקדמת", "order": 1, "language": "he"},
+        {"id": "2-he", "title": "ילדות", "order": 2, "language": "he"},
+        {"id": "3-he", "title": "נעורים", "order": 3, "language": "he"},
+        {"id": "4-he", "title": "אהבה וזוגיות", "order": 4, "language": "he"},
+        {"id": "5-he", "title": "צבא / שירות / לימודים", "order": 5, "language": "he"},
+        {"id": "6-he", "title": "קריירה ועשייה", "order": 6, "language": "he"},
+        {"id": "7-he", "title": "הורות ומשפחה", "order": 7, "language": "he"},
+        {"id": "8-he", "title": "חברים וקהילה", "order": 8, "language": "he"},
+        {"id": "9-he", "title": "תחביבים ופנאי", "order": 9, "language": "he"},
+        {"id": "10-he", "title": "אמונות וערכים", "order": 10, "language": "he"},
+        {"id": "11-he", "title": "רגעים קשים ומשמעותיים", "order": 11, "language": "he"},
+        {"id": "12-he", "title": "חלומות והבטים קדימה", "order": 12, "language": "he"},
     ]
     
-    for chapter_data in chapters_data:
+    chapters_data_en = [
+        {"id": "1-en", "title": "Roots and Early Family", "order": 1, "language": "en"},
+        {"id": "2-en", "title": "Childhood", "order": 2, "language": "en"},
+        {"id": "3-en", "title": "Teenage Years", "order": 3, "language": "en"},
+        {"id": "4-en", "title": "Love and Relationships", "order": 4, "language": "en"},
+        {"id": "5-en", "title": "Military / Service / Studies", "order": 5, "language": "en"},
+        {"id": "6-en", "title": "Career and Work", "order": 6, "language": "en"},
+        {"id": "7-en", "title": "Parenthood and Family", "order": 7, "language": "en"},
+        {"id": "8-en", "title": "Friends and Community", "order": 8, "language": "en"},
+        {"id": "9-en", "title": "Hobbies and Leisure", "order": 9, "language": "en"},
+        {"id": "10-en", "title": "Beliefs and Values", "order": 10, "language": "en"},
+        {"id": "11-en", "title": "Difficult and Meaningful Moments", "order": 11, "language": "en"},
+        {"id": "12-en", "title": "Dreams and Looking Forward", "order": 12, "language": "en"},
+    ]
+    
+    all_chapters = chapters_data_he + chapters_data_en
+    
+    # Delete old format chapters (without language suffix) if they exist
+    old_chapters = db.query(Chapter).filter(
+        ~Chapter.id.contains("-he"),
+        ~Chapter.id.contains("-en")
+    ).all()
+    if old_chapters:
+        print(f"⚠️  Found {len(old_chapters)} old-format chapters. Deleting them...")
+        for old_ch in old_chapters:
+            db.delete(old_ch)
+        db.commit()
+    
+    # Add or update chapters
+    for chapter_data in all_chapters:
         existing = db.query(Chapter).filter(Chapter.id == chapter_data["id"]).first()
         if not existing:
             chapter = Chapter(**chapter_data)
             db.add(chapter)
+        else:
+            # Update existing chapter if title or order changed
+            existing.title = chapter_data["title"]
+            existing.order = chapter_data["order"]
+            existing.language = chapter_data["language"]
     
     db.commit()
 
@@ -95,7 +130,9 @@ app.add_middleware(
 )
 
 # Keep RAW_QUESTIONS for backward compatibility and question generation
-RAW_QUESTIONS: Dict[str, List[Dict]] = {
+# Structure: RAW_QUESTIONS[language][chapter_id] = [list of questions]
+RAW_QUESTIONS: Dict[str, Dict[str, List[str]]] = {
+    "he": {
     "1": [
         "איך קוראים לך? בן כמה אתה? ואיפה נולדת? ",
         "איפה נולדת, ומה אתה זוכר מהמקום שבו התחלת את חייך?",
@@ -422,6 +459,335 @@ RAW_QUESTIONS: Dict[str, List[Dict]] = {
         "אם היית יכול לתמצת את כל מה שלמדת במשפט אחד — מה הוא היה?",
         "כשאתה חושב על סיפור חייך, מה הכותרת שהיית נותן לו?"
     ],
+    },
+    "en": {
+        "1": [
+            "What's your name? How old are you? Where were you born?",
+            "Where were you born, and what do you remember about the place where you began your life?",
+            "What's the story behind your name—who chose it and why?",
+            "What's your first memory as a child?",
+            "What was the house you grew up in like—the smells, sounds, sensations?",
+            "Who were the people who lived with you at home, and how did you get along?",
+            "Which holidays were most meaningful in your home, and how did you celebrate them?",
+            "What was your favorite food in childhood, and who made it?",
+            "Can you tell a funny or embarrassing story that happened to you as a child?",
+            "Who was the person closest to you in childhood—and why?",
+            "What games or activities did you love to do when you were little?",
+            "Who was your best friend in childhood, and what did you love doing together?",
+            "What songs, stories, or melodies do you remember from home?",
+            "What did you learn from your mother—not necessarily in words, but from her behavior?",
+            "And what did you learn from your father?",
+            "What beliefs, values, or \"fixed\" phrases were heard in your home?",
+            "Describe a family moment you remember as especially warm?",
+            "Was there someone in the family everyone laughed at, or who was the \"clown\" of the family?",
+            "What family traditions or habits did you love most?",
+            "Were there family stories passed down through generations—about migration, immigration, love, or survival?",
+            "What was the neighborhood or village you grew up in like? Who were the people around you?",
+            "How did the family cope with difficult or challenging moments?",
+            "What smell or taste immediately brings you back home?",
+            "If you had to choose one picture that represents the home you grew up in—what picture would that be?",
+            "What do you think you inherited from your family—a trait, habit, or approach to life?",
+            "If you could talk to one of your family ancestors, who would it be and what would you ask them?"
+        ],
+        "2": [
+            "Where did you spend most of your time as a child? At home, outside, with friends, in nature?",
+            "Who was your best friend in childhood, and what did you love doing together?",
+            "What game or toy was your favorite?",
+            "What food or treat made you happiest as a child?",
+            "Did you have a secret or special place you loved being alone?",
+            "What smell or taste immediately reminds you of your childhood?",
+            "What's one of your first memories from kindergarten or school?",
+            "Which teacher or caregiver influenced you especially—and why?",
+            "How would you describe yourself as a child? Shy, curious, mischievous, calm...?",
+            "What made you laugh hardest when you were little?",
+            "Can you tell a funny or strange story that happened to you in childhood?",
+            "What were you afraid of when you were little—and what helped you calm down?",
+            "What made you feel protected or loved?",
+            "Were there pets at home? What do you remember about them?",
+            "What hobbies or activities did you love doing alone?",
+            "What were your birthdays like? Who came, and how did you celebrate?",
+            "What was your childhood dream—what did you want to be when you grew up?",
+            "Was there a period in your childhood you remember especially fondly? Why that one?",
+            "Can you describe a typical day in your childhood—from morning to evening?",
+            "What happened when you did something mischievous or didn't listen to your parents?",
+            "Which vacations, trips, or family experiences do you remember especially?",
+            "If you could go back to one day in your childhood—which day would you return to?",
+            "Who was the hero or character you admired in childhood—from a movie, book, or real life?",
+            "What did you learn about yourself as a child that stays with you today?",
+            "If you had to describe your childhood in one word—what word would that be?"
+        ],
+        "3": [
+            "At what age do you feel your \"teenage years\" really began?",
+            "What was that period like for you—were you more rebellious, curious, romantic, shy?",
+            "Can you describe what the neighborhood, city, or school looked like in those years?",
+            "Who were your close friends in adolescence? What connected you?",
+            "What music did you listen to then—and which song immediately takes you back to that time?",
+            "Did you have a regular place where you met—a rooftop, garden, mall, beach?",
+            "How did you dress then? Were there styles or trends identified with you?",
+            "What made you feel like you \"belonged\"?",
+            "When did you first feel different—in thought, taste, or how you see the world?",
+            "What hobbies or activities filled your time then?",
+            "Can you tell about first love—how it started, how it ended, what you learned from it?",
+            "Who was your role model during that period?",
+            "How were your relationships with your parents in those years?",
+            "Did you feel freedom or restrictions at home / at school?",
+            "When did you first stand up for yourself or do something \"against the rules\"?",
+            "What was your dream then about the future?",
+            "If you had to choose one moment that symbolizes your teenage years—what is it?",
+            "How did you experience high school—did you study willingly, get bored, search for yourself?",
+            "Did you have a teacher or mentor who stayed especially in your memory?",
+            "What was the period of final exams or graduation like for you?",
+            "Which vacations, trips, or group experiences do you remember from that period?",
+            "If you could talk to yourself at age 16 today, what would you say?",
+            "What was your first friendship like—what did you learn from it about yourself?",
+            "What would you want your children or grandchildren to know about you at that age?",
+            "In one word, how would you describe your teenage years?"
+        ],
+        "4": [
+            "When did you first feel love? How did it feel?",
+            "Do you remember the first time you really fell in love? How did that relationship begin?",
+            "What attracted you to the person you first loved?",
+            "How would you describe yourself in relationships at a young age?",
+            "What did you learn about yourself from your first love?",
+            "What was courtship like for you—what was considered \"romantic\"?",
+            "Can you tell about a funny or embarrassing moment that happened in one of your loves?",
+            "How did you know you met someone you wanted to share your life with?",
+            "What made you feel security and trust in a romantic relationship?",
+            "What qualities did you seek or value in a partner?",
+            "What were the small moments of love like—not the grand gestures, but everyday life?",
+            "Can you describe a moment when you felt truly loved?",
+            "How did you deal with disagreements or difficult periods in your relationship?",
+            "What did you learn about communication and trust from your relationships?",
+            "What values were important to you within a relationship?",
+            "If there was a period of separation or heartbreak—what helped you get through it?",
+            "How has the meaning of love changed in your eyes over the years?",
+            "Which people or couples in your life were models of good love for you?",
+            "How did you feel on the day you got married (if you did)? What do you remember from the moments around it?",
+            "What song, place, or smell reminds you of great love?",
+            "Do you think there's such a thing as \"one true love\"?",
+            "What makes a relationship last over time, in your opinion?",
+            "If you had to advise your grandchild about love—what would you say?",
+            "What excites you most in your relationship today?",
+            "What have you learned about love—in the deepest sense of the word?"
+        ],
+        "5": [
+            "How did you feel when you faced this stage—military service, national service, or starting studies?",
+            "How did you choose your path—was it a dream, a rational decision, or just what happened?",
+            "Can you describe your first day in the military or at school? What goes through your head when you remember it?",
+            "Who were the first people you met there, and did you stay in touch?",
+            "What traits of yours stood out especially during that period?",
+            "Was there someone you saw as a commander, guide, or life teacher? What did you learn from them?",
+            "Can you tell about a particularly meaningful experience from service or studies?",
+            "Was there a moment when you felt real pride in yourself?",
+            "And what about a difficult moment—how did you deal with it?",
+            "How did the way you saw yourself change during that period?",
+            "Was this a period of freedom and independence or challenges and pressures?",
+            "What friendships formed there, and what was special about them?",
+            "Can you describe a funny or unforgettable situation from service or campus?",
+            "If you studied a profession—why that one, and do you think it was the right choice?",
+            "Were there people who opened doors for you or believed in you especially?",
+            "What were your days like—routine, tasks, studies, vacations?",
+            "What was the most challenging thing for you during that period?",
+            "Was there a moment when you felt you were truly maturing?",
+            "How did you keep in touch with home and family during that period?",
+            "Did you miss something from your life before?",
+            "Can you describe a specific place from service or studies that's etched in your memory?",
+            "What did you learn there about people—about friendship, trust, cooperation?",
+            "Were there dreams or plans that grew during those years?",
+            "How did that period contribute to shaping who you are today?",
+            "If you could meet yourself on the day of discharge or graduation—what would you say?"
+        ],
+        "6": [
+            "What was your first job or occupation? How did you get into it?",
+            "How did you feel on your first day at work?",
+            "Who was the first person who taught you \"how things really work\"?",
+            "What made you choose the profession or field you worked in most of your life?",
+            "What values did you try to bring with you to work?",
+            "Was there a moment when you felt you were \"in the right place\"?",
+            "And what about a moment when you felt stuck or disappointed?",
+            "What did you learn about yourself through work?",
+            "How would you describe your relationships with colleagues, employees, or managers?",
+            "Can you tell about a significant professional decision you made—and why?",
+            "Was there a project, task, or achievement you remember with special pride?",
+            "If you had to choose one trait that helped you succeed—what is it?",
+            "How did you manage to maintain balance between work, home, and personal life?",
+            "Were there moments when you considered changing direction? What made you stay or move?",
+            "Can you describe someone at work who influenced you especially?",
+            "How did you deal with stress or difficult situations at work?",
+            "What gave you a real sense of meaning in what you did?",
+            "Was there a period when you worked especially hard, and what did you learn from it?",
+            "If you managed people—what did you learn about leadership and working with others?",
+            "What lessons would you want to pass on to the younger generation about career and professional choices?",
+            "How would you describe yourself as a worker or team member?",
+            "What was the moment when you felt most valued at work?",
+            "And what was the moment when you had to be strong or stand up for yourself?",
+            "If you could go back—would you choose the same path?",
+            "How would you want your work to be remembered—what legacy did you leave?"
+        ],
+        "7": [
+            "Did you always want to be a parent?",
+            "Do you remember the moment you became a parent? How did you feel that day?",
+            "How did you choose the names for your children? Is there a special story behind them?",
+            "What changed in your life from the moment the children were born?",
+            "How would you describe yourself as a parent at the beginning?",
+            "What was the thing that scared you most about parenting—and what was the most exciting?",
+            "What's a strong childhood memory from when the children were little?",
+            "What everyday family moments do you remember with love?",
+            "Was there a ritual, tradition, or family habit that was important to maintain at home?",
+            "What was your routine like as a family?",
+            "What did you learn from your children—perhaps something you didn't expect to learn?",
+            "Was there a moment when you understood you were truly a \"parent\"?",
+            "How did you deal with challenges or difficulties—health, financial, or emotional?",
+            "Can you tell about a moment when you felt real pride in your children?",
+            "And what about a moment of worry or great fear?",
+            "How did you divide responsibilities at home—who did what, and how did it work?",
+            "What values did you try to pass on to your children?",
+            "What was dinner time like at your house—what did you talk about, what was the atmosphere?",
+            "What habits or customs from your home did you try to preserve—and which did you change?",
+            "Was there a moment when you learned to apologize or listen differently to your children?",
+            "How would you describe your relationship with each of your children—what's special about each?",
+            "How did your relationship change over the years with parenting?",
+            "What's one of your most beautiful memories as a family?",
+            "What would you want your children to remember about you when they think of their childhood?",
+            "If you could go back—is there something you would do differently as a parent?",
+            "When you look at your family today—what are you most proud of?"
+        ],
+        "8": [
+            "Who was the first friend you remember from childhood?",
+            "What do you think creates a truly good friendship?",
+            "Can you tell about a friendship that lasted many years? What kept it going?",
+            "How do you choose who to trust?",
+            "Did you have a friend who felt like \"family\"?",
+            "How did you maintain connections over the years—with moves, changes, and time?",
+            "Was there a fight or break with a close friend? How did it feel, and what happened after?",
+            "Can you tell about someone who helped you during a difficult time?",
+            "And what about someone you helped—a moment when you were there for another?",
+            "What shared experiences most strengthened your connections with others?",
+            "Can you describe a friend gathering or outing that's etched in your memory?",
+            "Is there a group or community you feel part of—at home, work, neighborhood, or hobbies?",
+            "What does it feel like to belong to a place or group?",
+            "Was there a stage in life when you felt alone or socially disconnected? How did you get out of it?",
+            "What do you most value in the people around you?",
+            "Can you describe one person from your social life who influenced you especially?",
+            "How did your social relationships change over the years?",
+            "What was your role in the group—were you the listener, the funny one, the organizer?",
+            "How do you celebrate with friends—birthday, holiday, regular evening?",
+            "Do you feel you have a support circle—people you can really rely on?",
+            "Can you tell about an unexpected meeting with someone from the past?",
+            "What did you learn from a friendship that ended—about yourself or life?",
+            "Were there people who went from friends to work partners, or vice versa?",
+            "What makes you feel you belong—place, people, values?",
+            "If you had to choose one person to accompany you for life—who would it be and why?"
+        ],
+        "9": [
+            "What things did you love doing in your free time when you were young?",
+            "What's the first hobby you remember that was really \"yours\"?",
+            "How did you start doing it—by chance, from someone who taught you, or just curiosity?",
+            "What gives you a feeling of calm or real joy?",
+            "What hobbies have stayed with you until today?",
+            "Are you a type who creates, moves, learns, or maybe all together?",
+            "Can you describe a moment when you simply felt \"in your zone\"—completely present and happy?",
+            "Is there an activity you've always dreamed of trying but haven't yet?",
+            "What objects, tools, or items are connected to your hobbies?",
+            "If you had to choose a perfect day off—what would it look like?",
+            "Do you enjoy activities alone or in company more?",
+            "Was there a period when you discovered a completely new hobby? How did it happen?",
+            "What do you love doing when you have time just for yourself?",
+            "Can you tell about a place you love going to \"clear your head\"?",
+            "Is there an activity you share with family or friends?",
+            "What music, movies, or books do you return to again and again?",
+            "Which trips, landscapes, or places are especially exciting for you?",
+            "Do you love creating with your own hands—cooking, building, painting, writing?",
+            "Was there a moment when a hobby became something bigger—perhaps an occupation or calling?",
+            "If you had to describe yourself through your hobbies—what would they say about you?",
+            "How do you like to rest after a busy day?",
+            "What small activities make you happy in daily life?",
+            "Can you remember a funny or special experience that happened while doing your hobby?",
+            "Would you want to learn something new today—a field, language, instrument, sport?",
+            "What's ideal free time in your eyes—quiet, full of movement, or a combination?"
+        ],
+        "10": [
+            "What values would you say have accompanied you all your life?",
+            "Where did you learn those values—from home, life, experience?",
+            "Is there a phrase, saying, or rule you try to live by?",
+            "What's more important in your eyes—honesty, generosity, love, responsibility, or something else?",
+            "How do you define what a \"good person\" is?",
+            "Were there moments when your values were tested?",
+            "What things do you find hard to forgive—and what are you willing to let go easily?",
+            "Is there a person you see as an example of values you appreciate?",
+            "What's the right thing to do in your eyes when there's a conflict between what you want and what you believe?",
+            "How do you deal with moral or conscience conflicts?",
+            "Is there a principle you try to pass on to your children or grandchildren?",
+            "How do you relate to religion or spirituality—does it have a place in your life?",
+            "Do you believe there's something beyond what we see here and now?",
+            "Which holidays, ceremonies, or traditions are meaningful to you—and why?",
+            "Can you describe a moment when you felt a spiritual connection, even if not religious?",
+            "Is there a value you learned only later in life—after falling, experiencing, or seeing something with different eyes?",
+            "What do you think holds a family or society together—what does it rest on?",
+            "What things are you not willing to give up ever?",
+            "Was there a time when you changed an opinion or belief you had before?",
+            "What do you think about concepts like fate, luck, or free choice?",
+            "How do you deal with your mistakes—are you forgiving toward yourself?",
+            "What do you feel gives meaning to your life?",
+            "What values would you want to be remembered by?",
+            "What do you think our world needs more of today?",
+            "If you had to pass on one message to the next generation—what would it be?"
+        ],
+        "11": [
+            "Can you tell about a difficult period in your life—and what helped you get through it?",
+            "How do you tend to cope when challenges or crises come?",
+            "Was there a moment when you felt you were losing direction—and what helped you find it again?",
+            "Did you experience a significant loss in your life? How did you deal with the feelings after it?",
+            "What's something you learned about yourself specifically from pain or difficulty?",
+            "Who were the people who were by your side in those moments?",
+            "Was there someone who surprised you with their support?",
+            "Is there a phrase, belief, or thought that helped you \"hold on\"?",
+            "What helps you find hope when things seem lost?",
+            "Can you describe a moment when you understood you were stronger than you thought?",
+            "Is there a difficult experience that later became an opportunity for growth?",
+            "How do you deal with separations—from people, places, periods in life?",
+            "Was there a case when you had to forgive—yourself or someone else?",
+            "What insights did you gain from challenging periods you went through?",
+            "What did you learn about life from the less simple places?",
+            "Is there a moment when you felt a big internal change—like \"something fell into place\"?",
+            "Who or what gives you a sense of stability when dealing with a storm?",
+            "How do you talk to yourself in difficult moments—in what inner voice?",
+            "Is there something from the past that hasn't been told or touched until today?",
+            "How do you part from things that are no longer yours—relationships, periods, dreams?",
+            "Did you experience a moment when someone saved you, emotionally or literally?",
+            "What did you learn about compassion—toward yourself and others?",
+            "Can you tell about a moment when you chose to move forward despite everything?",
+            "What helps you feel peace after a storm?",
+            "When you look back—what's the biggest lesson life taught you?"
+        ],
+        "12": [
+            "When you look back on your life—what do you see first?",
+            "What small moments do you most appreciate today, looking back?",
+            "What's the meaning of a good life in your eyes?",
+            "If you had to choose three things you're especially proud of—what are they?",
+            "What would you say to the younger version of yourself if you met them today?",
+            "Is there something you'd want to do differently—or maybe not change at all?",
+            "What dreamer were you in childhood—and which of those dreams came true?",
+            "Is there a dream you haven't fulfilled yet, but still believe in?",
+            "What small things do you still want to experience or try?",
+            "How do you imagine the coming years?",
+            "What makes you feel truly alive?",
+            "What do you wish for yourself for the future?",
+            "How do you want to be remembered—as a person, parent, friend, family member?",
+            "What messages would you want to leave for future generations in your family?",
+            "What have you learned about love, time, life itself?",
+            "Is there something you feel you've closed a circle with?",
+            "What do you want to continue learning, developing, or being interested in?",
+            "What still excites or thrills you like before?",
+            "Is there something you'd want to tell but never got to—something important for you to be heard?",
+            "If you wrote a letter to your future—what would you write?",
+            "What do you wish for the world of the next generation?",
+            "What habits or values would you want passed on from your family?",
+            "How do you deal with time passing—with changes, memories, longing?",
+            "If you could summarize everything you've learned in one sentence—what would it be?",
+            "When you think about your life story, what title would you give it?"
+        ],
+    },
 }
 
 
@@ -467,6 +833,7 @@ class UserOut(BaseModel):
     picture: Optional[str] = None
     oauth_provider: Optional[str] = None
     can_use_llm: bool = False
+    language: str = "he"  # Default to Hebrew
     
     class Config:
         from_attributes = True
@@ -476,17 +843,45 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserOut
 
+class UpdateLanguageIn(BaseModel):
+    language: str  # "he" or "en"
+
 class UpdateLLMPermissionIn(BaseModel):
     user_id: Optional[str] = None  # UUID as string
     person_id: Optional[str] = None
     email: Optional[str] = None
     can_use_llm: bool
 
-def ensure_chapter(ch_id: str, db: Session):
+def normalize_chapter_id(chapter_id: str, language: str = "he") -> str:
+    """
+    Convert a simple chapter ID (e.g., "1") to the database format (e.g., "1-he").
+    If the chapter_id already includes language (e.g., "1-he"), return it as-is.
+    """
+    if "-" in chapter_id and chapter_id.split("-")[-1] in ["he", "en"]:
+        # Already in the correct format
+        return chapter_id
+    # Convert simple ID to database format
+    return f"{chapter_id}-{language}"
+
+
+def ensure_chapter(ch_id: str, db: Session, language: Optional[str] = None):
     """Ensure a chapter exists in the database."""
-    chapter = db.query(Chapter).filter(Chapter.id == ch_id).first()
+    # Normalize chapter ID if needed
+    if language:
+        normalized_id = normalize_chapter_id(ch_id, language)
+        chapter = db.query(Chapter).filter(Chapter.id == normalized_id).first()
+    else:
+        # Try both languages if language not specified
+        chapter = db.query(Chapter).filter(Chapter.id == ch_id).first()
+        if not chapter and "-" not in ch_id:
+            # Try with Hebrew first, then English
+            for lang in ["he", "en"]:
+                normalized_id = normalize_chapter_id(ch_id, lang)
+                chapter = db.query(Chapter).filter(Chapter.id == normalized_id).first()
+                if chapter:
+                    break
     if not chapter:
-        raise HTTPException(status_code=404, detail="chapter not found")
+        raise HTTPException(status_code=404, detail=f"Chapter {ch_id} not found")
     return chapter
 
 
@@ -501,12 +896,13 @@ def get_or_create_user(person_id: str, db: Session) -> User:
     return user
 
 
-def get_question_text(question_id: str) -> Optional[str]:
+def get_question_text(question_id: str, language: str = "he") -> Optional[str]:
     """
     Get the question text from question_id.
     
     Args:
         question_id: Question ID in format "chapter-order" (e.g., "1-01")
+        language: Language code ("he" or "en")
         
     Returns:
         Question text or None if not found
@@ -519,7 +915,8 @@ def get_question_text(question_id: str) -> Optional[str]:
         chapter_id = parts[0]
         order = int(parts[1])
         
-        questions = RAW_QUESTIONS.get(chapter_id, [])
+        lang = language if language in ["he", "en"] else "he"
+        questions = RAW_QUESTIONS.get(lang, {}).get(chapter_id, [])
         if 1 <= order <= len(questions):
             return questions[order - 1].strip()
     except (ValueError, IndexError):
@@ -548,7 +945,7 @@ def verify_llm_permission(user: User) -> None:
 # ==================== Authentication Routes ====================
 
 @app.get("/api/auth/google/login")
-async def google_login():
+async def google_login(language: Optional[str] = "he"):
     """Initiate Google OAuth login flow."""
     settings = get_settings()
     
@@ -557,6 +954,10 @@ async def google_login():
             status_code=500,
             detail="Google OAuth not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
         )
+    
+    # Validate language parameter
+    if language not in ["he", "en"]:
+        language = "en"
     
     # Google OAuth2 authorization URL
     # Note: redirect_uri should match what's configured in Google Cloud Console
@@ -568,7 +969,8 @@ async def google_login():
         "response_type=code&"
         "scope=openid email profile&"
         "access_type=offline&"
-        "prompt=consent"
+        "prompt=consent&"
+        f"state={language}"  # Pass language as state parameter
     )
     
     return RedirectResponse(url=google_auth_url)
@@ -577,6 +979,7 @@ async def google_login():
 @app.get("/api/auth/google/callback")
 async def google_callback(
     code: str,
+    state: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Handle Google OAuth callback and create/login user."""
@@ -587,6 +990,9 @@ async def google_callback(
             status_code=500,
             detail="Google OAuth not configured"
         )
+    
+    # Extract language from state parameter (default to Hebrew)
+    language = state if state in ["he", "en"] else "he"
     
     # Use backend URL for callback (must match Google Cloud Console configuration)
     redirect_uri = f"{settings.BACKEND_URL}/api/auth/google/callback"
@@ -619,6 +1025,12 @@ async def google_callback(
         db=db,
     )
     
+    # Set language preference if not already set (for existing users) or always for new logins
+    # We update language on each login to respect user's current preference
+    user.language = language
+    db.commit()
+    db.refresh(user)
+    
     # Create JWT token
     access_token_jwt = create_access_token(data={"sub": str(user.id)})
     
@@ -641,6 +1053,7 @@ async def get_current_user_info(
         picture=current_user.picture,
         oauth_provider=current_user.oauth_provider,
         can_use_llm=current_user.can_use_llm,
+        language=current_user.language or "he",
     )
 
 
@@ -648,6 +1061,35 @@ async def get_current_user_info(
 async def logout():
     """Logout endpoint (client should remove token)."""
     return {"message": "Logged out successfully"}
+
+
+@app.put("/api/auth/language", response_model=UserOut)
+async def update_language(
+    payload: UpdateLanguageIn,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update user's language preference."""
+    if payload.language not in ["he", "en"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Language must be 'he' (Hebrew) or 'en' (English)"
+        )
+    
+    current_user.language = payload.language
+    db.commit()
+    db.refresh(current_user)
+    
+    return UserOut(
+        id=str(current_user.id),
+        person_id=current_user.person_id,
+        name=current_user.name,
+        email=current_user.email,
+        picture=current_user.picture,
+        oauth_provider=current_user.oauth_provider,
+        can_use_llm=current_user.can_use_llm,
+        language=current_user.language,
+    )
 
 
 @app.post("/api/admin/llm-permission")
@@ -708,18 +1150,54 @@ async def update_llm_permission(
 # ==================== API Routes ====================
 
 @app.get("/api/chapters", response_model=List[ChapterOut])
-def list_chapters(db: Session = Depends(get_db)):
-    """List all available chapters."""
-    chapters = db.query(Chapter).order_by(Chapter.order).all()
-    return [{"id": ch.id, "title": ch.title} for ch in chapters]
+async def list_chapters(
+    language: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all available chapters in the specified language."""
+    # Use language from parameter, user preference, or default to Hebrew
+    if language and language in ["he", "en"]:
+        lang = language
+    elif current_user and current_user.language:
+        lang = current_user.language
+    else:
+        lang = "he"
+    
+    chapters = db.query(Chapter).filter(Chapter.language == lang).order_by(Chapter.order).all()
+    # Return simple chapter IDs (e.g., "1", "2") instead of database format ("1-he", "2-he")
+    # Extract the numeric part before the language suffix
+    return [{"id": ch.id.split("-")[0] if "-" in ch.id and ch.id.split("-")[-1] in ["he", "en"] else ch.id, "title": ch.title} for ch in chapters]
 
 @app.get("/api/questions", response_model=List[QuestionOut])
-def get_questions(chapter: str, db: Session = Depends(get_db)):
-    """Get questions for a specific chapter."""
-    ensure_chapter(chapter, db)
-    raw = RAW_QUESTIONS.get(chapter, [])
+async def get_questions(
+    chapter: str,
+    language: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get questions for a specific chapter in the specified language."""
+    # Use language from parameter, user preference, or default to Hebrew
+    if language and language in ["he", "en"]:
+        lang = language
+    elif current_user and current_user.language:
+        lang = current_user.language
+    else:
+        lang = "he"
+    
+    # Normalize chapter ID to database format
+    normalized_chapter_id = normalize_chapter_id(chapter, lang)
+    
+    # Verify chapter exists in the requested language
+    chapter_obj = db.query(Chapter).filter(Chapter.id == normalized_chapter_id).first()
+    if not chapter_obj:
+        raise HTTPException(status_code=404, detail=f"Chapter {chapter} not found for language {lang}")
+    
+    # Get questions for the specified language (use simple chapter ID for RAW_QUESTIONS lookup)
+    simple_chapter_id = chapter.split("-")[0] if "-" in chapter and chapter.split("-")[-1] in ["he", "en"] else chapter
+    raw = RAW_QUESTIONS.get(lang, {}).get(simple_chapter_id, [])
     items = [
-        {"id": f"{chapter}-{i:02d}", "chapter_id": chapter, "text": q.strip(), "order": i}
+        {"id": f"{simple_chapter_id}-{i:02d}", "chapter_id": chapter, "text": q.strip(), "order": i}
         for i, q in enumerate(raw, start=1)
     ]
     return items
@@ -747,8 +1225,6 @@ def add_answer(
     db: Session = Depends(get_db)
 ):
     """Add or update an answer to a question (upsert)."""
-    ensure_chapter(ans.chapter_id, db)
-    
     # Use authenticated user or fallback to person_id (for backward compatibility)
     if ans.person_id and ans.person_id != current_user.person_id:
         # If person_id is provided and different, use it (backward compatibility)
@@ -756,10 +1232,15 @@ def add_answer(
     else:
         user = current_user
     
+    # Normalize chapter_id based on user's language
+    lang = user.language or "he"
+    normalized_chapter_id = normalize_chapter_id(ans.chapter_id, lang)
+    ensure_chapter(normalized_chapter_id, db, lang)
+    
     # Check if answer already exists for this user, chapter, and question
     existing_answer = db.query(Answer).filter(
         Answer.user_id == user.id,
-        Answer.chapter_id == ans.chapter_id,
+        Answer.chapter_id == normalized_chapter_id,
         Answer.question_id == ans.question_id
     ).first()
     
@@ -775,7 +1256,7 @@ def add_answer(
         # Create new answer
         answer = Answer(
             user_id=user.id,
-            chapter_id=ans.chapter_id,
+            chapter_id=normalized_chapter_id,
             question_id=ans.question_id,
             text=ans.text,
             audio_url=ans.audio_url,
@@ -791,7 +1272,7 @@ def add_answer(
             # Try to get the existing answer again
             existing_answer = db.query(Answer).filter(
                 Answer.user_id == user.id,
-                Answer.chapter_id == ans.chapter_id,
+                Answer.chapter_id == normalized_chapter_id,
                 Answer.question_id == ans.question_id
             ).first()
             if existing_answer:
@@ -814,8 +1295,6 @@ def get_answers(
     db: Session = Depends(get_db)
 ):
     """Get answers for a person and chapter."""
-    ensure_chapter(chapter, db)
-    
     # Use authenticated user or person_id parameter (if provided and matches)
     if person_id:
         user = db.query(User).filter(User.person_id == person_id).first()
@@ -830,10 +1309,15 @@ def get_answers(
     else:
         user = current_user
     
+    # Normalize chapter_id based on user's language
+    lang = user.language or "he"
+    normalized_chapter_id = normalize_chapter_id(chapter, lang)
+    ensure_chapter(normalized_chapter_id, db, lang)
+    
     # Get answers
     answers = db.query(Answer).filter(
         Answer.user_id == user.id,
-        Answer.chapter_id == chapter
+        Answer.chapter_id == normalized_chapter_id
     ).order_by(Answer.created_at).all()
     
     return [
@@ -854,18 +1338,21 @@ async def story_chapter(
     db: Session = Depends(get_db)
 ):
     """Generate a chapter narrative from answers using LLM."""
-    ensure_chapter(payload.chapter_id, db)
-    
     # Use authenticated user or fallback to person_id (for backward compatibility)
     if payload.person_id and payload.person_id != current_user.person_id:
         user = get_or_create_user(payload.person_id, db)
     else:
         user = current_user
     
+    # Normalize chapter_id based on user's language
+    lang = user.language or "he"
+    normalized_chapter_id = normalize_chapter_id(payload.chapter_id, lang)
+    ensure_chapter(normalized_chapter_id, db, lang)
+    
     # Fetch answers for this chapter
     chapter_answers = db.query(Answer).filter(
         Answer.user_id == user.id,
-        Answer.chapter_id == payload.chapter_id
+        Answer.chapter_id == normalized_chapter_id
     ).order_by(Answer.created_at).all()
     
     if not chapter_answers:
@@ -874,8 +1361,8 @@ async def story_chapter(
             detail=f"No answers found for person {payload.person_id} in chapter {payload.chapter_id}"
         )
     
-    # Get current chapter info for ordering
-    current_chapter = ensure_chapter(payload.chapter_id, db)
+    # Get current chapter info for ordering (use normalized chapter_id)
+    current_chapter = ensure_chapter(normalized_chapter_id, db, lang)
     
     # Get previous chapter summaries for context
     previous_summaries = []
@@ -901,10 +1388,11 @@ async def story_chapter(
         context_summary = payload.context_summary
     
     # Convert answers to facts format
+    user_language = user.language or "he"
     facts = [
         {
             "question_id": ans.question_id,
-            "question": get_question_text(ans.question_id) or "",
+            "question": get_question_text(ans.question_id, user_language) or "",
             "text": ans.text,
             "created_at": ans.created_at.isoformat(),
         }
@@ -938,10 +1426,10 @@ async def story_chapter(
                 detail=f"Failed to generate chapter narrative: {str(e)}"
             )
     
-    # Save or update story chapter in database
+    # Save or update story chapter in database (use normalized chapter_id)
     existing = db.query(StoryChapter).filter(
         StoryChapter.user_id == user.id,
-        StoryChapter.chapter_id == payload.chapter_id
+        StoryChapter.chapter_id == normalized_chapter_id
     ).first()
     
     if existing:
@@ -954,7 +1442,7 @@ async def story_chapter(
     else:
         story_chapter = StoryChapter(
             user_id=user.id,
-            chapter_id=payload.chapter_id,
+            chapter_id=normalized_chapter_id,
             narrative=narrative,
             summary=summary,
             style_guide=payload.style_guide,
@@ -965,7 +1453,7 @@ async def story_chapter(
         db.refresh(story_chapter)
     
     return {
-        "chapter_id": payload.chapter_id,
+        "chapter_id": payload.chapter_id,  # Return original simple ID to frontend
         "narrative": narrative,
         "summary": summary
     }
@@ -986,20 +1474,26 @@ async def get_story_chapter(
     db: Session = Depends(get_db)
 ):
     """Get a story chapter from the database by chapter_id. Returns null if not found."""
-    ensure_chapter(chapter_id, db)
+    # Normalize chapter_id based on user's language
+    lang = current_user.language or "he"
+    normalized_chapter_id = normalize_chapter_id(chapter_id, lang)
+    ensure_chapter(normalized_chapter_id, db, lang)
     
     # Get story chapter for current user
     story_chapter = db.query(StoryChapter).filter(
         StoryChapter.user_id == current_user.id,
-        StoryChapter.chapter_id == chapter_id
+        StoryChapter.chapter_id == normalized_chapter_id
     ).first()
     
     if not story_chapter:
         # Return null instead of 404 - this is expected when story hasn't been generated yet
         return None
     
+    # Return simple chapter_id to frontend (remove language suffix)
+    simple_chapter_id = normalized_chapter_id.split("-")[0] if "-" in normalized_chapter_id and normalized_chapter_id.split("-")[-1] in ["he", "en"] else normalized_chapter_id
+    
     return {
-        "chapter_id": story_chapter.chapter_id,
+        "chapter_id": simple_chapter_id,
         "narrative": story_chapter.narrative,
         "summary": story_chapter.summary,
         "style_guide": story_chapter.style_guide,

@@ -11,7 +11,7 @@ pip install -r requirements.txt
 
 ### 2. Database Setup
 
-The application uses PostgreSQL for data persistence. You need to:
+**PostgreSQL is required** - the application uses PostgreSQL for data persistence. You need to:
 
 1. **Install PostgreSQL** (if not already installed)
    - macOS: `brew install postgresql`
@@ -46,12 +46,19 @@ The application uses PostgreSQL for data persistence. You need to:
 
 3. **Configure database connection**
    
-   Create a `.env` file in the backend directory:
+   **DATABASE_URL is required** - Create a `.env` file in the backend directory:
    ```bash
    DATABASE_URL=postgresql://user:password@localhost:5432/lifestory
    ```
    
    Replace `user` and `password` with your PostgreSQL credentials.
+   
+   **Common examples:**
+   - Default PostgreSQL installation: `DATABASE_URL=postgresql://postgres:password@localhost:5432/lifestory`
+   - Custom user: `DATABASE_URL=postgresql://myuser:mypassword@localhost:5432/lifestory`
+   - Docker PostgreSQL: `DATABASE_URL=postgresql://postgres:password@localhost:5432/lifestory`
+
+   **Important:** The application will fail to start if `DATABASE_URL` is not set or if PostgreSQL connection fails.
 
    The database tables will be automatically created on first startup.
 
